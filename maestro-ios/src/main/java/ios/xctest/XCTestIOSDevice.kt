@@ -243,8 +243,25 @@ class XCTestIOSDevice(
     }
 
     companion object {
+        // Permission alerts the XCTest runner can accept/deny at interaction time; must stay
+        // in sync with PermissionButtonFinder.permissionDialogPatterns on the Swift side.
         private val allPermissions = listOf(
-            "notifications"
+            "bluetooth",
+            "calendar",
+            "camera",
+            "contacts",
+            "faceid",
+            "homekit",
+            "location",
+            "medialibrary",
+            "microphone",
+            "motion",
+            "notifications",
+            "photos",
+            "reminders",
+            "siri",
+            "speech",
+            "userTracking",
         )
     }
 

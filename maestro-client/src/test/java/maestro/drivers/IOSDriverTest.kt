@@ -10,10 +10,38 @@ import maestro.DeviceUnreachableException
 import maestro.MaestroException
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import util.IOSDeviceType
 import xcuitest.api.DeviceInfo
 import java.net.SocketTimeoutException
 
 class IOSDriverTest {
+
+    @Test
+    fun `real device driver reports a physical device name`() {
+        val iosDevice = mockk<IOSDevice>(relaxed = true)
+
+        val driver = IOSDriver(iosDevice = iosDevice, deviceType = IOSDeviceType.REAL)
+
+        assertThat(driver.name()).isEqualTo(IOSDriver.REAL_DEVICE_NAME)
+    }
+
+    @Test
+    fun `real device proxy commands fail instead of changing the Mac network service`() {
+        val driver = IOSDriver(
+            iosDevice = mockk(relaxed = true),
+            deviceType = IOSDeviceType.REAL,
+        )
+
+        val setError = assertThrows<UnsupportedOperationException> {
+            driver.setProxy("127.0.0.1", 8080)
+        }
+        val resetError = assertThrows<UnsupportedOperationException> {
+            driver.resetProxy()
+        }
+
+        assertThat(setError).hasMessageThat().contains("not supported on physical iOS devices")
+        assertThat(resetError).hasMessageThat().contains("not supported on physical iOS devices")
+    }
 
     @Test
     fun `IOSDeviceErrors Unreachable from the device is translated to DeviceUnreachableException`() {

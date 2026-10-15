@@ -11,6 +11,7 @@ import hierarchy.ViewHierarchy
 import maestro.utils.Insight
 import maestro.utils.Insights
 import maestro.utils.NoopInsights
+import org.slf4j.LoggerFactory
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
@@ -21,7 +22,8 @@ class LocalIOSDevice(
     private val insights: Insights = NoopInsights
 ) : IOSDevice {
 
-    private val executor by lazy { Executors.newSingleThreadScheduledExecutor() }
+    private val executorDelegate = lazy { Executors.newSingleThreadScheduledExecutor() }
+    private val executor by executorDelegate
 
     override fun open() {
         xcTestDevice.open()
@@ -108,7 +110,23 @@ class LocalIOSDevice(
     }
 
     override fun stop(id: String) {
-        xcTestDevice.stop(id)
+        try {
+            xcTestDevice.stop(id)
+        } catch (runnerFailure: IOSDeviceErrors) {
+            stopWithPlatformFallback(id, runnerFailure)
+        } catch (runnerFailure: Exception) {
+            stopWithPlatformFallback(id, runnerFailure)
+        }
+    }
+
+    private fun stopWithPlatformFallback(id: String, runnerFailure: Throwable) {
+        LOGGER.warn("XCTest could not stop app $id; falling back to the platform controller", runnerFailure)
+        try {
+            deviceController.stop(id)
+        } catch (fallbackFailure: Exception) {
+            fallbackFailure.addSuppressed(runnerFailure)
+            throw fallbackFailure
+        }
     }
 
     override fun isKeyboardVisible(): Boolean {
@@ -140,7 +158,11 @@ class LocalIOSDevice(
     }
 
     override fun close() {
-        xcTestDevice.close()
+        try {
+            xcTestDevice.close()
+        } finally {
+            if (executorDelegate.isInitialized()) executor.shutdownNow()
+        }
     }
 
     override fun isScreenStatic(): Boolean {
@@ -158,5 +180,9 @@ class LocalIOSDevice(
 
     override fun addMedia(path: String) {
         deviceController.addMedia(path)
+    }
+
+    private companion object {
+        val LOGGER = LoggerFactory.getLogger(LocalIOSDevice::class.java)
     }
 }

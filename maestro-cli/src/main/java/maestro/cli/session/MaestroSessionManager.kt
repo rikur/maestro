@@ -28,6 +28,7 @@ import maestro.Maestro
 import maestro.device.Device
 import maestro.cli.device.PickDeviceInteractor
 import maestro.cli.driver.DriverBuilder
+import maestro.cli.driver.RealDevicePreflight
 import maestro.cli.driver.RealIOSDeviceDriver
 import maestro.cli.util.PrintUtils
 import maestro.device.Platform
@@ -157,6 +158,7 @@ object MaestroSessionManager {
 
             if (device.deviceType == Device.DeviceType.REAL && device.platform == Platform.IOS) {
                 PrintUtils.message("Detected connected iPhone with ${device.instanceId}!")
+                RealDevicePreflight.run()
                 val driverBuilder = DriverBuilder()
                 RealIOSDeviceDriver(
                     destination = "platform=iOS,id=${device.instanceId}",
@@ -392,8 +394,13 @@ object MaestroSessionManager {
         val tempFileHandler = TempFileHandler()
         val deviceController = when (deviceType) {
             Device.DeviceType.REAL -> {
+                // devicectl in Xcode 15 requires the CoreDevice identifier, while go-ios and
+                // xcodebuild use the hardware UDID selected by the CLI. Preserve both.
                 val device = util.LocalIOSDevice().listDeviceViaDeviceCtl(deviceId)
-                val deviceCtlDevice = DeviceControlIOSDevice(deviceId = device.identifier)
+                val deviceCtlDevice = DeviceControlIOSDevice(
+                    deviceId = device.identifier,
+                    hardwareUdid = deviceId,
+                )
                 deviceCtlDevice
             }
             Device.DeviceType.SIMULATOR -> {
@@ -424,11 +431,22 @@ object MaestroSessionManager {
             reinstallDriver = reinstallDriver,
         )
 
+        // Real devices serve openLink through the on-device runner; hand the controller the
+        // runner client now that it exists (the controller is constructed before the client).
+        (deviceController as? DeviceControlIOSDevice)?.xcTestDriverClient = xcTestDriverClient
+
         val xcRunnerCLIUtils = XCRunnerCLIUtils(tempFileHandler = tempFileHandler)
         val xcTestDevice = XCTestIOSDevice(
             deviceId = deviceId,
             client = xcTestDriverClient,
-            getInstalledApps = { xcRunnerCLIUtils.listApps(deviceId) },
+            // simctl cannot enumerate apps on physical devices. The real-device HTTP
+            // routes used by the CLI resolve the foreground app on-device and do not need
+            // this simulator-only candidate list.
+            getInstalledApps = if (deviceType == Device.DeviceType.REAL) {
+                { emptySet() }
+            } else {
+                { xcRunnerCLIUtils.listApps(deviceId) }
+            },
         )
 
         val iosDriver = IOSDriver(
@@ -440,6 +458,7 @@ object MaestroSessionManager {
             ),
             insights = CliInsights,
             xctestLogsDir = TestDebugReporter.getDebugOutputPath().toFile(),
+            deviceType = iOSDeviceType,
         )
 
         return Maestro.ios(
